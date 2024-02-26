@@ -53,7 +53,7 @@ def calculate_LDS(model, data, labels):
     with torch.no_grad():
         predictions = model.forward(data).numpy()
         y_pred = (predictions > 0.5) * 1
-        return np.mean(y_pred == labels.numpy().astype(int))
+        return abs(0.5 - np.mean(y_pred == labels.numpy().astype(int)))
 
 # Main function to implement LPS
 def calculate_LPS(model, data, y):
