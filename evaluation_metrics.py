@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.metrics import mean_absolute_error
 
 class TransformerModel(nn.Module):
     def __init__(self, input_dim, num_layers, hidden_size, num_heads, dropout_prob, task='classification'):
@@ -14,54 +16,51 @@ class TransformerModel(nn.Module):
         self.fc = nn.Linear(input_dim, hidden_size)
         self.encoder_layer = TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, dim_feedforward=hidden_size, dropout=dropout_prob)
         self.transformer_encoder = TransformerEncoder(self.encoder_layer, num_layers=num_layers)
-        self.decoder = nn.Linear(input_dim, 1)
-        if self.task == 'classification':
-            self.criterion = nn.BCEWithLogitsLoss()
+        if task == 'classification':
+            self.decoder = nn.Linear(hidden_size, 1)
+            self.criterion = nn.BCELoss()
         else:
+            self.decoder = nn.Linear(hidden_size, input_dim)
             self.criterion = nn.MSELoss()
 
     def forward(self, x):
-        x  = self.fc(x)
+        x = self.fc(x)
         x = self.transformer_encoder(x)
+        x = x[:,-1,:]  # Take the last output only
         x = self.decoder(x)
         if self.task == 'classification':
-            x = F.log_softmax(x, dim=-1)
+            x = torch.sigmoid(x)  # Use sigmoid for binary classification
         return x
 
-    def train_model(self, train_data, optimizer, num_epochs):
+    def train_model(self, train_data, train_labels, optimizer, num_epochs, batch_size=32):
+        # Create a TensorDataset and a DataLoader
+        dataset = TensorDataset(train_data, train_labels)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
         for epoch in range(num_epochs):
-            for i, (inputs, labels) in enumerate(train_data):
+            for inputs, labels in dataloader:
                 outputs = self.forward(inputs)
                 loss = self.criterion(outputs, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item()}')
     
-    def predict(self, test_data):
-        predictions = []
-        for i, inputs in enumerate(test_data):
-            outputs = self.forward(inputs)
-            predictions.append(outputs)
-        return predictions
 
 # Main function to implement LDS
-def calculate_LDS(model, synthetic_data, original_data):
+def calculate_LDS(model, data, labels):
     # create a dataset from the synthetic data labeled as 0 and original data labeled as 1
-    data = torch.cat((synthetic_data, original_data))
-    labels = torch.cat((torch.zeros(synthetic_data.shape[0]), torch.ones(original_data.shape[0]))).numpy()
-    predictions = model.predict(data).numpy()
-    y_pred = predictions > 0.5
-    return np.mean(y_pred != labels)
+    with torch.no_grad():
+        predictions = model.forward(data).numpy()
+        y_pred = (predictions > 0.5) * 1
+        return np.mean(y_pred == labels.numpy().astype(int))
 
-"""
 # Main function to implement LPS
-def calculate_LPS(synthetic_data):
-    # Prepare synthetic data
-    # Initialize Transformer-based model
-    # Train the model using synthetic data
-    # Evaluate the model on synthetic data
-    # Return LPS score
-"""
+def calculate_LPS(model, data, y):
+    with torch.no_grad():
+        predictions = model.forward(data).numpy()
+        return mean_absolute_error(y.numpy(), predictions)
+    
 
 def row_fidelity(synthetic_df, true_df):
     # Assuming a simple row fidelity calculation: Mean absolute difference per row
