@@ -49,4 +49,4 @@ def prepare_data(data, from_year = "2015", start_year_test="2020"):
     df_reindexed = df.reindex(new_index)
     df_reindexed.index.names = ['date']
 
-    return df_reindexed, df_orig
+    return df_reindexed, df_orig, df
