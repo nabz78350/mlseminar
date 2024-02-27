@@ -9,6 +9,60 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.metrics import mean_absolute_error
 
+
+def evaluate_synthetic_data(model_lds, model_lps, synthetic_data, true_data, train_ratio):
+    print("Training LDS model...")
+    train_gen_samples = synthetic_data[:int(synthetic_data.shape[0] * train_ratio), :, :]
+    test_gen_samples = synthetic_data[int(synthetic_data.shape[0] * train_ratio):, :, :]
+
+    train_true_samples = torch.from_numpy(true_data[:int(true_data.shape[0] * train_ratio), :, :])
+    test_true_samples = torch.from_numpy(true_data[int(true_data.shape[0] * train_ratio):, :, :])
+
+    train_data = torch.cat([train_gen_samples, train_true_samples], axis=0).float()
+    train_labels = torch.cat([torch.zeros(train_gen_samples.shape[0]), torch.ones(train_true_samples.shape[0])], axis=0).reshape(-1,1).float()
+
+    test_data = torch.cat([test_gen_samples, test_true_samples], axis=0).float()
+    test_labels = torch.cat([torch.zeros(test_gen_samples.shape[0]), torch.ones(test_true_samples.shape[0])], axis=0).reshape(-1,1).float()
+    
+    optim = torch.optim.Adam(model_lds.parameters(), lr=1e-3)
+    model_lds.train_model(train_data, train_labels, optim, 10)
+    lds = calculate_LDS(model_lds, test_data, test_labels)
+
+    train_data = synthetic_data[:,:-1,:].float()
+    train_y = synthetic_data[:,-1,:].float()
+
+    print("Training LPS model...")
+    test_data = torch.from_numpy(true_data[:,:-1,:]).float()
+    test_y = torch.from_numpy(true_data[:,-1,:]).float()
+
+    optim = torch.optim.Adam(model_lps.parameters(), lr=1e-3)
+    model_lps.train_model(train_data, train_y, optim, 20)
+    lps = calculate_LPS(model_lps, test_data, test_y)
+
+    # Reshape synthetic data to match true data's shape
+    synthetic_data = synthetic_data.reshape(-1, synthetic_data.shape[-1])
+    true_data = true_data.reshape(-1, true_data.shape[-1])
+    # Convert numpy arrays to pandas dataframes
+    synthetic_df = pd.DataFrame(synthetic_data)
+    true_df = pd.DataFrame(true_data)
+    
+    # Calculate metrics
+    kl_div_cols = kl_divergence_columns(synthetic_df, true_df)
+    kl_div_rows = kl_divergence_rows(synthetic_df, true_df)
+    ws_dist_cols = wasserstein_distance_columns(synthetic_df, true_df)
+    ws_dist_rows = wasserstein_distance_rows(synthetic_df, true_df)
+    
+    # Return metrics
+    return {
+        'LDS': lds,
+        'LPS': lps,
+        'KL Divergence Columns': kl_div_cols.mean().values[0],
+        'KL Divergence Rows': kl_div_rows.mean().values[0],
+        'Wasserstein Distance Columns': ws_dist_cols.mean().values[0],
+        'Wasserstein Distance Rows': ws_dist_rows.mean().values[0]
+    }
+
+
 class TransformerModel(nn.Module):
     def __init__(self, input_dim, num_layers, hidden_size, num_heads, dropout_prob, task='classification'):
         super(TransformerModel, self).__init__()
