@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-
+"""
 def plot_data(df_orig, synth_data, starting_point, columns):
     for col in columns:
         values_orig = df_orig[col]
@@ -15,8 +15,23 @@ def plot_data(df_orig, synth_data, starting_point, columns):
         plt.legend(loc=[1.01, 0], fontsize=10)
         plt.title(col)
         plt.show()
+"""
+import plotly.graph_objects as go
 
+def plot_data(df_orig, synth_data, starting_point, columns):
+    for col in columns:
+        values_orig = df_orig[col]
+        values_imp = synth_data[col]
+        values_orig = values_orig.cumsum()
+        values_imp = values_imp.cumsum() + starting_point[col]
 
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_orig.index, y=values_orig, mode='lines', name='original'))
+        fig.add_trace(go.Scatter(x=synth_data.index, y=values_imp, mode='lines', name='Sampled'))
+        fig.update_layout(title=col, xaxis_title='Date', yaxis_title=col)
+        fig.show()
+
+        
 def plot_covariance_matrices(cov_matrix_true, cov_matrix_synthetic, titles=['True Data', 'Synthetic Data']):
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
 
