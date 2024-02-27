@@ -57,6 +57,7 @@ class DDPM(nn.Module):
                 x = x.to(self.device)
                 # perturb data
                 noise = torch.randn_like(x)
+                ### TODO ajouter bruit gaussian covarié
                 t = torch.randint(1, self.timesteps, (x.shape[0],1)).to(self.device) 
                 x_pert = self.perturb_input(x, t.squeeze(), noise)
                 # use network to recover noise
@@ -78,8 +79,8 @@ class DDPM(nn.Module):
                 if not os.path.exists(self.save_dir):
                     os.mkdir(self.save_dir)
                 print(f'Loss: {loss_epoch}, MAE: {mae_epoch}, Wasserstein Distance: {w_dist_epoch}')
-                torch.save(self.model.state_dict(), self.save_dir + f"model_{ep}.pth")
-                print('saved model at ' + self.save_dir + f"model_{ep}.pth")
+        torch.save(self.model.state_dict(), self.save_dir + f"model_final.pth")
+        print('saved model at ' + self.save_dir + f"model_final.pth")
         return losses, maes, wasserstein_distances
 
     @torch.no_grad()

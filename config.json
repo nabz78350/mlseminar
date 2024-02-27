@@ -1,0 +1,11 @@
+{
+    "BATCH_SIZE": 64,
+    "HIDDEN_DIM": 128,
+    "NHEADS_FEATURE": 8,
+    "NHEADS_TIME": 8,
+    "NUM_LAYERS_TRANSFORMER": 1,
+    "N_EPOCH": 1,
+    "N_FEAT": 53,
+    "SEQ_LEN": 21,
+    "TIMESTEPS": 50
+}
