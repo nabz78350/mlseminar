@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 /results/*
 /100/*
 /weights/*
 /__pycache__/*
 /qolmat/*
+=======
+weights/
+__pycache__/
+>>>>>>> 79af4abae1d930317ca151df789364293adb982b
