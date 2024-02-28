@@ -12,8 +12,8 @@ from sklearn.metrics import mean_absolute_error
 
 def evaluate_synthetic_data(model_lds, model_lps, synthetic_data, true_data, train_ratio):
     print("Training LDS model...")
-    train_gen_samples = synthetic_data[:int(synthetic_data.shape[0] * train_ratio), :, :]
-    test_gen_samples = synthetic_data[int(synthetic_data.shape[0] * train_ratio):, :, :]
+    train_gen_samples = torch.from_numpy(synthetic_data[:int(synthetic_data.shape[0] * train_ratio), :, :])
+    test_gen_samples = torch.from_numpy(synthetic_data[int(synthetic_data.shape[0] * train_ratio):, :, :])
 
     train_true_samples = torch.from_numpy(true_data[:int(true_data.shape[0] * train_ratio), :, :])
     test_true_samples = torch.from_numpy(true_data[int(true_data.shape[0] * train_ratio):, :, :])
@@ -28,8 +28,8 @@ def evaluate_synthetic_data(model_lds, model_lps, synthetic_data, true_data, tra
     model_lds.train_model(train_data, train_labels, optim, 10)
     lds = calculate_LDS(model_lds, test_data, test_labels)
 
-    train_data = synthetic_data[:,:-1,:].float()
-    train_y = synthetic_data[:,-1,:].float()
+    train_data = torch.from_numpy(synthetic_data[:,:-1,:]).float()
+    train_y = torch.from_numpy(synthetic_data[:,-1,:]).float()
 
     print("Training LPS model...")
     test_data = torch.from_numpy(true_data[:,:-1,:]).float()
@@ -92,13 +92,15 @@ class TransformerModel(nn.Module):
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         for epoch in range(num_epochs):
+            loss_epoch = 0
             for inputs, labels in dataloader:
                 outputs = self.forward(inputs)
                 loss = self.criterion(outputs, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item()}')
+                loss_epoch += loss.item()
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss_epoch/inputs.shape[0]}')
     
 
 # Main function to implement LDS
