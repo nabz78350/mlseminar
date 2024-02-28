@@ -1,7 +1,2 @@
-weights/*
-<<<<<<< HEAD
-*.pyc
-=======
-*.pyc
->>>>>>> main
-/results/*
+weights/
+__pycache__/
