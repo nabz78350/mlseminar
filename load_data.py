@@ -38,7 +38,8 @@ def prepare_data(data, from_year = "2015", start_year_test="2020"):
     df = pd.DataFrame(df.stack(), columns=['Ret'])
     df.index.names = ['date', 'Ticker']
     df_orig = df.copy()
-    df.loc[start_year_test:] = np.nan
+    if start_year_test is not None:
+        df.loc[start_year_test:] = np.nan
     df = df.swaplevel(0, 1)
     df_orig = df_orig.swaplevel(0, 1)
     df = df['Ret'].unstack().T
