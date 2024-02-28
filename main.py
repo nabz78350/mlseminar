@@ -24,10 +24,10 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else torch.device('c
 START_TRAIN = "1999"
 END_TRAIN = "2021"
 START_TEST = "2022"
-
+SCALER = 'QT'
 
 data = aggregate_market_data()
-df_reindexed, df_orig, df = prepare_data(data, from_year = START_TRAIN, start_year_test = START_TEST)
+df_reindexed, df_orig, df = prepare_data(data, from_year = START_TRAIN, start_year_test = START_TEST,scaler = SCALER)
 train_df = df_reindexed.loc[:END_TRAIN]
 train_df = train_df.interpolate(method='nearest')
 X_train = train_df.to_numpy()
@@ -41,7 +41,7 @@ class ModelConfig:
         self.BETA1 = 1e-4
         self.BETA2 = 0.02
         self.SEQ_LEN = 21
-        self.HIDDEN_DIM = 128
+        self.HIDDEN_DIM = 64
         self.BATCH_SIZE = 64
         self.N_EPOCH = 10
         self.LRATE = 1e-3
@@ -109,30 +109,30 @@ def train_model(model_kind="DDPM",hyperparameter ="SEQ_LEN",parameter_value=21):
     losses, maes, wasserstein_distances =ddpm.train(train_loader=train_loader)
     fit_history = pd.DataFrame([losses,maes,wasserstein_distances])
     fit_history.to_csv(os.path.join(save_dir,'history.csv'))
-    gen_samples, _  = ddpm.sample(n_sample = 1000, window_size = model_config.SEQ_LEN, dim_input = model_config.N_FEAT, save_rate=20)
+    gen_samples, _  = ddpm.sample(n_sample = 1500, window_size = model_config.SEQ_LEN, dim_input = model_config.N_FEAT, save_rate=20)
     np.save(os.path.join(save_dir,'samples.npy'),gen_samples.numpy())
     
     
 
 if __name__ == '__main__':
     hyperparameter = "SEQ_LEN"
-    values = [21,63,126,252]
+    values = [5,10,21,63,126,252]
     for val in values :
         train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
     
-    hyperparameter = "BATCH_SIZE"
-    values = [32,64,128]
-    for val in values :
-        train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
+    # hyperparameter = "BATCH_SIZE"
+    # values = [32,64,128]
+    # for val in values :
+    #     train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
         
-    hyperparameter = "LRATE"
-    values = [1e-4,1e-3,1e-2,1e-1]
-    for val in values :
-        train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
+    # hyperparameter = "LRATE"
+    # values = [1e-4,1e-3,1e-2,1e-1]
+    # for val in values :
+    #     train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
     
-    hyperparameter = "NUM_LAYERS_TRANSFORMER"
-    values = [1,2,4,8]
-    for val in values :
-        train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
+    # hyperparameter = "NUM_LAYERS_TRANSFORMER"
+    # values = [1,2,4,8]
+    # for val in values :
+    #     train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
     
     

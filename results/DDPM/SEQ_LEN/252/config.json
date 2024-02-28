@@ -2,7 +2,7 @@
     "BATCH_SIZE": 64,
     "BETA1": 0.0001,
     "BETA2": 0.02,
-    "HIDDEN_DIM": 128,
+    "HIDDEN_DIM": 64,
     "LRATE": 0.001,
     "NHEADS_FEATURE": 8,
     "NHEADS_TIME": 8,

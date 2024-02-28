@@ -1,8 +1,9 @@
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, QuantileTransformer
 import pandas as pd
 import numpy as np
 import os
 from tqdm import tqdm
+import joblib
 
 
 
@@ -29,12 +30,16 @@ def aggregate_market_data():
     return all_df
 
 
-def prepare_data(data, from_year = "2015", start_year_test="2020"):
+def prepare_data(data, from_year = "2015", start_year_test="2020",scaler = 'SC'):
     df = pd.concat(data, axis=1).dropna(axis=1, how='any').pct_change().dropna()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index().loc[from_year:]
-    sc = StandardScaler()
-    df = pd.DataFrame(sc.fit_transform(df), index=df.index, columns=df.columns)
+    if scaler == 'SC':
+        sc = StandardScaler()
+    elif scaler =='QT':
+        sc = QuantileTransformer(output_distribution='normal', n_quantiles=100)
+    
+    df = pd.DataFrame(sc.fit_transform(df.T).T, index=df.index, columns=df.columns)
     df = pd.DataFrame(df.stack(), columns=['Ret'])
     df.index.names = ['date', 'Ticker']
     df_orig = df.copy()
@@ -49,5 +54,5 @@ def prepare_data(data, from_year = "2015", start_year_test="2020"):
     new_index = pd.date_range(start_date, end_date, freq='B')
     df_reindexed = df.reindex(new_index)
     df_reindexed.index.names = ['date']
-
+    joblib.dump(sc, 'results/'+scaler+'.save')
     return df_reindexed, df_orig, df
