@@ -4,3 +4,4 @@ weights/*
 =======
 *.pyc
 >>>>>>> main
+/results/*
