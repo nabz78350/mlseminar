@@ -111,7 +111,7 @@ class TSGM(nn.Module):
         super(TSGM, self).__init__()
         self.device = device
         self.score_model = score_model
-        self.RNN = RNN_model.to(self.device)
+        self.RNN = RNN_model
         self.beta_0 = beta_0
         self.beta_1 = beta_1
         self.n_epoch_train = n_epoch_train
@@ -122,7 +122,7 @@ class TSGM(nn.Module):
         self.sde = VPSDE(beta_0, beta_1, num_noise_steps)
 
     def pretrain_RNN(self, train_loader):
-        optimizer = torch.optim.Adam(self.RNN.parameters(), lr=self.lrate)
+        optimizer = torch.optim.Adam(self.RNN.parameters, lr=self.lrate)
 
         # initializations
         losses = []
@@ -146,7 +146,7 @@ class TSGM(nn.Module):
     def loss_score(self, x):
 
         # RNN encoding
-        h = self.RNN.encoder(x)[0]  # h/X.shape = (batch_size, window_size, n_features)
+        h = self.RNN.encoder(x)  # h/X.shape = (batch_size, window_size, n_features)
 
         # extract h_prev
         h_prev = h[:, :-1, :]
@@ -182,7 +182,7 @@ class TSGM(nn.Module):
         # set up optimizer
         if use_alt:
             self.parameters = list(self.score_model.parameters()) +\
-                list(self.RNN.parameters())
+                list(self.RNN.parameters)
         else:
             self.parameters = list(self.score_model.parameters())
 
@@ -224,17 +224,25 @@ class TSGM(nn.Module):
 
             print(f'Epoch {epoch+1}/{self.n_epoch_train}, Loss: {loss_epoch}')
 
-    def sample(self, start, n_sample, window_size, dim_input):
+    def sample(self,
+               start,  # shape: (batch_size, dim_input)
+               n_sample,
+               window_size,
+               dim_input):
         predictor = ReverseDiffusionPredictor
         corrector = LangevinCorrector
+
         snr = 0.16
         n_steps = 1
         sde = VPSDE(self.beta_0, self.beta_1, self.num_noise_steps)
         shape = (n_sample, window_size, dim_input)
-        h = pc_sampler(start,  # shape: (batch_size, dim_input)
-                          self.score_model, sde,
-                          shape,
-                          predictor, corrector,
-                          snr, self.device, n_steps=n_steps)
-        x = self.RNN.decoder(h)[0]
+
+        h_start = self.RNN.encoder(start.unsqueeze(1))
+        h = pc_sampler(h_start,  # shape: (batch_size, 1, dim_input)
+                       self.score_model, sde,
+                       shape,
+                       predictor, corrector,
+                       snr, self.device, n_steps=n_steps)
+
+        x = self.RNN.predict(start, h)  # shape: (batch_size, window_size, dim_input)
         return x

@@ -240,7 +240,7 @@ class AutoEncoder(torch.nn.Module):
         torch.Tensor
             List of embeddings for noise steps
         """
-        
+
         steps = torch.arange(num_noise_steps).unsqueeze(1)  # (T,1)
         frequencies = 10.0 ** (torch.arange(dim) / (dim - 1) * 4.0).unsqueeze(0)  # (1,dim)
         table = steps * frequencies  # (T,dim)
@@ -248,23 +248,42 @@ class AutoEncoder(torch.nn.Module):
         return table
 
 
-# define our encoder decoder model (has the attributes encoder and decoder that we call in the TSGM class)
 class RNNEncDec(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, device):
-        super(RNNEncDec, self).__init__()
+    def __init__(self, dim_input, num_layers, device):
+        super().__init__()
         self.device = device
-        self.encoder = nn.LSTM(input_size=input_size,
-                               hidden_size=hidden_size,
-                               num_layers=num_layers,
-                               batch_first=True)
-        self.decoder = nn.LSTM(input_size=hidden_size,
-                               hidden_size=hidden_size,
-                               num_layers=num_layers,
-                               batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=dim_input,
+                                                   nhead=1,
+                                                   dropout=0.1,
+                                                   batch_first=True)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=dim_input,
+                                                   nhead=1,
+                                                   dropout=0.1,
+                                                   batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer,
+                                             num_layers=num_layers).to(device)
+        self.decoder = nn.TransformerDecoder(decoder_layer,
+                                             num_layers=num_layers).to(device)
+        self.parameters = list(self.encoder.parameters()) + \
+            list(self.decoder.parameters())
 
     def forward(self, x):
         # encoder
-        h, _ = self.encoder(x)
+        h = self.encoder(x)
         # decoder
-        h, _ = self.decoder(h)
-        return h
+        x_ = self.decoder(x, h)
+        return x_
+
+    def predict(self, start, memory):
+        # start/x_0 : (batch_size, dim_input)
+        # memory/h : (batch_size, window_size, dim_input)
+        start = start.unsqueeze(1)
+        output = torch.zeros_like(memory)
+        output[:, 0, :] = start.squeeze(1)
+        for i in range(1, memory.shape[1]):
+            tgt = output[:, :i, :]
+            output[:, i, :] = self.decoder(tgt,
+                                           memory)[:, -1, :]
+
+        # output : (batch_size, window_size, dim_input)
+        return output

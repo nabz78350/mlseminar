@@ -33,8 +33,8 @@ def pc_sampler(start, model, sde, shape, predictor, corrector, snr, device, inve
         shape_one_time = (shape[0], 1, shape[2])
 
         sample = torch.zeros(shape, device=device)
-        x_prev = start.unsqueeze(1)  # shape: (batch_size, n_features)
-        sample[:, 0, :] = start
+        x_prev = start  # shape: (batch_size, 1, n_features)
+        sample[:, 0, :] = start.squeeze(1)
         for time_step_x in range(1, window_size):
             # Initial sample
             x = sde.prior_sampling(shape_one_time).to(device)
