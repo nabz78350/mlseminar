@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import pandas as pd
 """
 def plot_data(df_orig, synth_data, starting_point, columns):
     for col in columns:
@@ -21,13 +22,14 @@ import plotly.graph_objects as go
 def plot_data(df_orig, synth_data, starting_point, columns):
     for col in columns:
         values_orig = df_orig[col]
-        values_imp = synth_data[col]
+        #inserting the starting point to the synthetic data
+        values_imp = pd.concat([starting_point[col],synth_data[col]],axis=0)
         values_orig = values_orig.cumsum()
-        values_imp = values_imp.cumsum() + starting_point[col]
+        values_imp = values_imp.cumsum()
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df_orig.index, y=values_orig, mode='lines', name='original'))
-        fig.add_trace(go.Scatter(x=synth_data.index, y=values_imp, mode='lines', name='Sampled'))
+        fig.add_trace(go.Scatter(x=values_imp.index, y=values_imp, mode='lines', name='Sampled'))
         fig.update_layout(title=col, xaxis_title='Date', yaxis_title=col)
         fig.show()
 
