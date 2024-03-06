@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 from typing import Tuple
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -19,6 +20,7 @@ class PositionalEncoding(nn.Module):
         # x is expected to have shape [n_batches, input_size, d_model]
         x = x + self.pe
         return x
+
 
 class CustomTransformerTimeSeries(nn.Module):
     def __init__(self, input_size, n_feat, hidden_size, num_layers, num_heads, dropout_prob=0.1):
@@ -45,7 +47,8 @@ class CustomTransformerTimeSeries(nn.Module):
         #x = x + self.timeembed(t).view(-1,1,self.hidden_size)
         x = self.output(x)
         return x
-    
+
+
 class ResidualBlockTS(torch.nn.Module):
     """Residual block based on the work of Gorishniy et al., 2023
     (https://arxiv.org/abs/2106.11959).
@@ -144,6 +147,7 @@ class AutoEncoder(torch.nn.Module):
         self,
         num_noise_steps: int,
         dim_input: int,
+        dim_output: int,
         residual_block: torch.nn.Module,
         dim_embedding: int = 128,
         num_blocks: int = 1,
@@ -178,7 +182,7 @@ class AutoEncoder(torch.nn.Module):
         self.layer_t_2 = torch.nn.Linear(dim_embedding, dim_embedding)
 
         self.layer_out_1 = torch.nn.Linear(dim_embedding, dim_embedding)
-        self.layer_out_2 = torch.nn.Linear(dim_embedding, dim_input)
+        self.layer_out_2 = torch.nn.Linear(dim_embedding, dim_output)
         self.dropout_out = torch.nn.Dropout(p_dropout)
 
         self.residual_layers = torch.nn.ModuleList([residual_block for _ in range(num_blocks)])
@@ -242,3 +246,25 @@ class AutoEncoder(torch.nn.Module):
         table = steps * frequencies  # (T,dim)
         table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)  # (T,dim*2)
         return table
+
+
+# define our encoder decoder model (has the attributes encoder and decoder that we call in the TSGM class)
+class RNNEncDec(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, device):
+        super(RNNEncDec, self).__init__()
+        self.device = device
+        self.encoder = nn.LSTM(input_size=input_size,
+                               hidden_size=hidden_size,
+                               num_layers=num_layers,
+                               batch_first=True)
+        self.decoder = nn.LSTM(input_size=hidden_size,
+                               hidden_size=hidden_size,
+                               num_layers=num_layers,
+                               batch_first=True)
+
+    def forward(self, x):
+        # encoder
+        h, _ = self.encoder(x)
+        # decoder
+        h, _ = self.decoder(h)
+        return h
