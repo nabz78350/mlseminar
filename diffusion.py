@@ -228,7 +228,8 @@ class TSGM(nn.Module):
                start,  # shape: (batch_size, dim_input)
                n_sample,
                window_size,
-               dim_input):
+               dim_input,
+               return_h=False):
         predictor = ReverseDiffusionPredictor
         corrector = LangevinCorrector
 
@@ -245,4 +246,6 @@ class TSGM(nn.Module):
                        snr, self.device, n_steps=n_steps)
 
         x = self.RNN.predict(start, h)  # shape: (batch_size, window_size, dim_input)
+        if return_h:
+            return x, h
         return x

@@ -268,11 +268,12 @@ class RNNEncDec(nn.Module):
             list(self.decoder.parameters())
 
     def forward(self, x):
+        # x : (batch_size, window_size, dim_input)
         # encoder
         h = self.encoder(x)
         # decoder
-        x_ = self.decoder(x, h)
-        return x_
+        x_ = self.decoder(x[:, :-1, :], h)
+        return torch.cat((x[:, 0, :].unsqueeze(1), x_), dim=1)
 
     def predict(self, start, memory):
         # start/x_0 : (batch_size, dim_input)
