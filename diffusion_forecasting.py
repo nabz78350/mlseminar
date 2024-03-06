@@ -1,0 +1,112 @@
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+from torch.autograd import Variable
+from tqdm import tqdm
+import os
+import numpy as np
+from scipy.stats import wasserstein_distance
+
+
+class DDPM(nn.Module):
+    def __init__(self, model, optimizer, device, timesteps, beta1, beta2, n_epoch, batch_size, context_window, forecast_length, lrate, save_dir):
+        super(DDPM, self).__init__()
+        self.model = model
+        self.optimizer = optimizer
+        self.device = device
+        self.timesteps = timesteps
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.n_epoch = n_epoch
+        self.batch_size = batch_size
+        self.lrate = lrate
+        self.save_dir = save_dir
+        self.context_window = context_window
+        self.forecast_length = forecast_length
+
+        # construct DDPM noise schedule
+        self.b_t = (self.beta2 - self.beta1) * torch.linspace(0, 1, self.timesteps + 1, device=self.device) + self.beta1
+        self.a_t = 1 - self.b_t
+        self.ab_t = torch.cumsum(self.a_t.log(), dim=0).exp()    
+        self.ab_t[0] = 1
+
+    def perturb_input(self, x, t, noise):
+        return self.ab_t.sqrt()[t, None, None] * x + (1 - self.ab_t[t, None, None]) * noise
+
+    def denoise_add_noise(self, x, t, pred_noise, z=None):
+        if z is None:
+            z = torch.randn_like(x)
+        noise = self.b_t.sqrt()[t] * z
+        mean = (x - pred_noise * ((1 - self.a_t[t]) / (1 - self.ab_t[t]).sqrt())) / self.a_t[t].sqrt()
+        return mean + noise
+
+    def train(self, train_loader):
+        # Initialize lists to store metrics
+        losses = []
+        maes = []
+        wasserstein_distances = []
+
+        for ep in range(self.n_epoch):
+            print(f'epoch {ep}')
+            loss_epoch = 0
+            mae_epoch = 0
+            w_dist_epoch = 0
+            # linearly decay learning rate
+            pbar = tqdm(train_loader, mininterval=2 )    
+            for x in pbar:   
+                self.model.zero_grad()
+                x = x.to(self.device)
+                context = x[:,:self.context_window,:]
+                pred = x[:,-self.forecast_length:,:]
+                # perturb data
+                noise = torch.randn_like(pred)
+                ### TODO ajouter bruit gaussian covarié
+                t = torch.randint(1, self.timesteps, (x.shape[0],1)).to(self.device) 
+                x_pert = self.perturb_input(pred, t.squeeze(), noise)
+                x_pert = torch.cat((context, x_pert), dim=1)
+                # use network to recover noise
+                pred_noise = self.model(x_pert, t)
+                # loss is mean squared error between the predicted and true noise
+                loss = F.mse_loss(pred_noise, noise)
+                loss_epoch += loss.item()/self.batch_size
+                loss.backward()
+                self.optimizer.step()
+                # Calculate MAE and Wasserstein distance
+                mae_epoch += F.l1_loss(pred_noise, noise).item()/self.batch_size
+                w_dist_epoch += wasserstein_distance(pred_noise.flatten().detach().cpu().numpy(), noise.flatten().cpu().numpy())/self.batch_size
+                # Store metrics
+            losses.append(loss_epoch)
+            maes.append(mae_epoch)
+            wasserstein_distances.append(w_dist_epoch)
+            # save model periodically
+            if ep%4==0 or ep == int(self.n_epoch-1):
+                if not os.path.exists(self.save_dir):
+                    os.mkdir(self.save_dir)
+                print(f'Loss: {loss_epoch}, MAE: {mae_epoch}, Wasserstein Distance: {w_dist_epoch}')
+        torch.save(self.model.state_dict(), self.save_dir + f"model_final.pth")
+        print('saved model at ' + self.save_dir + f"model_final.pth")
+        return losses, maes, wasserstein_distances
+
+    @torch.no_grad()
+    def sample(self, context_test, dim_input, save_rate=20):
+        # x_T ~ N(0, 1), sample initial noise
+        sample = torch.randn(1, self.forecast_length, dim_input).to(self.device) 
+        # array to keep track of generated steps for plotting
+        intermediate = [] 
+        for i in range(self.timesteps-1, -1, -1):
+            print(f'sampling timestep {i:3d}', end='\r')
+            # reshape time tensor
+            t = torch.tensor([i]).to(self.device)
+            t = t.repeat(1,1)
+            z = torch.randn_like(sample)  if i > 1 else 0
+            x = torch.cat((context_test, sample), dim=1)
+            eps = self.model(x,t)    # predict noise e_(x_t,t)
+            sample = self.denoise_add_noise(sample, i+1, eps, z)
+
+            if i % save_rate ==0 or i==self.timesteps or i<8:
+                intermediate.append(sample.detach().cpu().numpy())
+        intermediate = np.stack(intermediate)
+        return sample, intermediate
+
+
