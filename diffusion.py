@@ -224,6 +224,8 @@ class TSGM(nn.Module):
 
             print(f'Epoch {epoch+1}/{self.n_epoch_train}, Loss: {loss_epoch}')
 
+        return losses
+
     def sample(self,
                start,  # shape: (batch_size, dim_input)
                n_sample,
