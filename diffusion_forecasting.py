@@ -99,7 +99,8 @@ class DDPM(nn.Module):
             # reshape time tensor
             t = torch.tensor([i]).to(self.device)
             t = t.repeat(1,1)
-            z = torch.randn_like(sample)  if i > 1 else 0
+            #z = torch.randn_like(sample)  if i > 1 else 0
+            z = 0
             x = torch.cat((context_test, sample), dim=1)
             eps = self.model(x,t)    # predict noise e_(x_t,t)
             sample = self.denoise_add_noise(sample, i+1, eps, z)
