@@ -18,7 +18,8 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         # x is expected to have shape [n_batches, input_size, d_model]
-        x = x + self.pe
+        assert x.shape[1] <= self.pe.shape[1], "Input size is greater than max_len"
+        x = x + self.pe[:, :x.shape[1], :]
         return x
 
 
@@ -249,37 +250,62 @@ class AutoEncoder(torch.nn.Module):
 
 
 class RNNEncDec(nn.Module):
-    def __init__(self, dim_input, num_layers, device):
+    def __init__(self, dim_input, dim_model, num_layers, device, max_len=64):
         super().__init__()
         self.device = device
-        encoder_layer = nn.TransformerEncoderLayer(d_model=dim_input,
-                                                   nhead=1,
+        encoder_layer = nn.TransformerEncoderLayer(d_model=dim_model,
+                                                   nhead=4,
                                                    dropout=0.1,
                                                    batch_first=True)
-        decoder_layer = nn.TransformerDecoderLayer(d_model=dim_input,
-                                                   nhead=1,
+        decoder_layer = nn.TransformerDecoderLayer(d_model=dim_model,
+                                                   nhead=4,
                                                    dropout=0.1,
                                                    batch_first=True)
-        self.encoder = nn.TransformerEncoder(encoder_layer,
-                                             num_layers=num_layers).to(device)
-        self.decoder = nn.TransformerDecoder(decoder_layer,
-                                             num_layers=num_layers).to(device)
-        self.parameters = list(self.encoder.parameters()) + \
-            list(self.decoder.parameters())
+
+        self.transform_encoder = nn.TransformerEncoder(encoder_layer,
+                                                       num_layers=num_layers).\
+            to(device)
+        self.emb = nn.Sequential(
+            nn.Linear(dim_input, dim_model),
+            PositionalEncoding(dim_model, max_len=max_len),
+        ).to(device)
+        self.transform_decoder = nn.TransformerDecoder(decoder_layer,
+                                                       num_layers=num_layers).\
+            to(device)
+        self.last_layer = nn.Linear(dim_model, dim_input).to(device)
+
+    def encoder(self, x):
+        mask = nn.Transformer.generate_square_subsequent_mask(
+            x.shape[1]).to(self.device)
+        x = self.emb(x)
+        return self.transform_encoder(x, mask=mask)
+
+    def decoder(self, x, h):
+        mask = nn.Transformer.generate_square_subsequent_mask(
+            x.shape[1]).to(self.device)
+        x = self.emb(x)
+        x = self.transform_decoder(x, h, tgt_mask=mask)
+        return self.last_layer(x)
 
     def forward(self, x):
         # x : (batch_size, window_size, dim_input)
+
+        x_prev = x[:, :-1, :]
+
         # encoder
-        h = self.encoder(x)
+        h = self.encoder(x_prev)
+
         # decoder
-        x_ = self.decoder(x[:, :-1, :], h)
+        x_ = self.decoder(x_prev, h)
         return torch.cat((x[:, 0, :].unsqueeze(1), x_), dim=1)
 
     def predict(self, start, memory):
         # start/x_0 : (batch_size, dim_input)
-        # memory/h : (batch_size, window_size, dim_input)
+        # memory/h : (batch_size, window_size, dim_model)
         start = start.unsqueeze(1)
-        output = torch.zeros_like(memory)
+        output = torch.zeros(start.shape[0],
+                             memory.shape[1],
+                             start.shape[2]).to(self.device)
         output[:, 0, :] = start.squeeze(1)
         for i in range(1, memory.shape[1]):
             tgt = output[:, :i, :]

@@ -107,26 +107,23 @@ class DDPM(nn.Module):
 
 class TSGM(nn.Module):
     def __init__(self, score_model, RNN_model, num_noise_steps, beta_0, beta_1,
-                 n_epoch_train, n_epoch_pretrain, lrate, device):
+                 device):
         super(TSGM, self).__init__()
         self.device = device
         self.score_model = score_model
         self.RNN = RNN_model
         self.beta_0 = beta_0
         self.beta_1 = beta_1
-        self.n_epoch_train = n_epoch_train
-        self.n_epoch_pretrain = n_epoch_pretrain
         self.num_noise_steps = num_noise_steps
-        self.lrate = lrate
 
         self.sde = VPSDE(beta_0, beta_1, num_noise_steps)
 
-    def pretrain_RNN(self, train_loader):
-        optimizer = torch.optim.Adam(self.RNN.parameters, lr=self.lrate)
+    def pretrain_RNN(self, train_loader, n_epoch_pretrain, lrate):
+        optimizer = torch.optim.Adam(self.RNN.parameters(), lr=lrate)
 
         # initializations
         losses = []
-        for epoch in range(self.n_epoch_pretrain):
+        for epoch in range(n_epoch_pretrain):
             loss_epoch = 0
             for x in train_loader:
                 x = x.to(self.device)
@@ -140,7 +137,7 @@ class TSGM(nn.Module):
 
                 loss_epoch += loss.item()
             losses.append(loss_epoch/len(train_loader))
-            print(f'Epoch {epoch+1}/{self.n_epoch_pretrain}, Loss: {loss_epoch/len(train_loader)}')
+            print(f'Epoch {epoch+1}/{n_epoch_pretrain}, Loss: {loss_epoch/len(train_loader)}')
         return losses
 
     def loss_score(self, x):
@@ -175,25 +172,26 @@ class TSGM(nn.Module):
         # return F.mse_loss(score, grad)
         return torch.mean(loss)
 
-    def train(self, train_loader, use_alt=False):
+    def train(self, train_loader, n_epoch_train, n_epoch_pretrain, lrate,
+              use_alt=False):
         # pre-train the RNN model
-        self.pretrain_RNN(train_loader)
+        losses_pre = self.pretrain_RNN(train_loader, n_epoch_pretrain, lrate)
 
         # set up optimizer
         if use_alt:
             self.parameters = list(self.score_model.parameters()) +\
-                list(self.RNN.parameters)
+                list(self.RNN.parameters())
         else:
             self.parameters = list(self.score_model.parameters())
 
-        self.optimizer = torch.optim.Adam(self.parameters, lr=self.lrate)
+        self.optimizer = torch.optim.Adam(self.parameters, lr=lrate)
 
         # initializations
         losses = []
         # maes = []
         # wasserstein_distances = []
 
-        for epoch in range(self.n_epoch_train):
+        for epoch in range(n_epoch_train):
             pbar = tqdm(train_loader, mininterval=2)
             loss_epoch = 0
             # mae_epoch = 0
@@ -212,6 +210,7 @@ class TSGM(nn.Module):
                     loss_RNN = F.mse_loss(x_pred, x)
                     loss_RNN.backward()
                     self.optimizer.step()
+                    losses_pre.append(loss_RNN.item())
 
                 loss_epoch += loss.item()*x.shape[0]
                 # mae_epoch += F.l1_loss(pred_noise, noise).item()/x.shape[0]
@@ -222,7 +221,7 @@ class TSGM(nn.Module):
             # maes.append(mae_epoch)
             # wasserstein_distances.append(w_dist_epoch)
 
-            print(f'Epoch {epoch+1}/{self.n_epoch_train}, Loss: {loss_epoch}')
+            print(f'Epoch {epoch+1}/{n_epoch_train}, Loss: {loss_epoch}')
 
         return losses
 
@@ -230,7 +229,7 @@ class TSGM(nn.Module):
                start,  # shape: (batch_size, dim_input)
                n_sample,
                window_size,
-               dim_input,
+               dim_model,
                return_h=False):
         predictor = ReverseDiffusionPredictor
         corrector = LangevinCorrector
@@ -238,7 +237,7 @@ class TSGM(nn.Module):
         snr = 0.16
         n_steps = 1
         sde = VPSDE(self.beta_0, self.beta_1, self.num_noise_steps)
-        shape = (n_sample, window_size, dim_input)
+        shape = (n_sample, window_size, dim_model)
 
         h_start = self.RNN.encoder(start.unsqueeze(1))
         h = pc_sampler(h_start,  # shape: (batch_size, 1, dim_input)
