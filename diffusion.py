@@ -194,6 +194,7 @@ class TSGM(nn.Module):
         for epoch in range(n_epoch_train):
             pbar = tqdm(train_loader, mininterval=2)
             loss_epoch = 0
+            loss_epoch_EncDec = 0
             # mae_epoch = 0
             # w_dist_epoch = 0
             for x in pbar:
@@ -210,7 +211,7 @@ class TSGM(nn.Module):
                     loss_RNN = F.mse_loss(x_pred, x)
                     loss_RNN.backward()
                     self.optimizer.step()
-                    losses_pre.append(loss_RNN.item())
+                    loss_epoch_EncDec += loss_RNN.item()
 
                 loss_epoch += loss.item()*x.shape[0]
                 # mae_epoch += F.l1_loss(pred_noise, noise).item()/x.shape[0]
@@ -218,12 +219,15 @@ class TSGM(nn.Module):
 
             loss_epoch = loss_epoch/len(train_loader)
             losses.append(loss_epoch)
+            loss_epoch_EncDec = loss_epoch_EncDec/len(train_loader)
+            losses_pre.append(loss_epoch_EncDec)
             # maes.append(mae_epoch)
             # wasserstein_distances.append(w_dist_epoch)
 
-            print(f'Epoch {epoch+1}/{n_epoch_train}, Loss: {loss_epoch}')
+            print(f'Epoch {epoch+1}/{n_epoch_train},\tLoss: {loss_epoch},\t' +
+                  f'Loss_EncDec: {loss_epoch_EncDec}')
 
-        return losses
+        return losses_pre, losses
 
     def sample(self,
                start,  # shape: (batch_size, dim_input)

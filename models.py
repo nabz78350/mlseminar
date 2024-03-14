@@ -250,16 +250,16 @@ class AutoEncoder(torch.nn.Module):
 
 
 class RNNEncDec(nn.Module):
-    def __init__(self, dim_input, dim_model, num_layers, device, max_len=64):
+    def __init__(self, dim_input, dim_model, num_layers, device, max_len=128):
         super().__init__()
         self.device = device
         encoder_layer = nn.TransformerEncoderLayer(d_model=dim_model,
-                                                   nhead=4,
-                                                   dropout=0.1,
+                                                   nhead=2,
+                                                   dropout=0,
                                                    batch_first=True)
         decoder_layer = nn.TransformerDecoderLayer(d_model=dim_model,
-                                                   nhead=4,
-                                                   dropout=0.1,
+                                                   nhead=2,
+                                                   dropout=0,
                                                    batch_first=True)
 
         self.transform_encoder = nn.TransformerEncoder(encoder_layer,
