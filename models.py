@@ -102,7 +102,7 @@ class ResidualBlockTS(torch.nn.Module):
             dim_feedforward=dim_feedforward,
             activation="gelu",
             batch_first=True,
-            dropout=0.1,
+            dropout=0,
         )
         self.time_layer = torch.nn.TransformerEncoder(
             encoder_layer_time, num_layers=num_layers_transformer
@@ -314,3 +314,170 @@ class RNNEncDec(nn.Module):
 
         # output : (batch_size, window_size, dim_input)
         return output
+
+
+# class conv_block(nn.Module):
+
+#     def __init__(self, in_ch, hidden_ch, out_ch):
+
+#         super(conv_block, self).__init__()
+#         self.conv = nn.Sequential(
+#             nn.Conv1d(in_ch, hidden_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
+#             nn.InstanceNorm1d(hidden_ch),
+#             nn.ReLU(inplace=True),
+#             nn.Conv1d(hidden_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
+#             nn.InstanceNorm1d(out_ch),
+#             nn.ReLU(inplace=True)
+#         )
+
+#     def forward(self, x):
+#         x = self.conv(x)
+#         return x
+
+
+# class up_conv_block(nn.Module):
+
+#     def __init__(self, in_ch, out_ch, scale_tuple):
+
+#         super(up_conv_block, self).__init__()
+
+#         self.up_conv = nn.Sequential(
+#             nn.Upsample(scale_factor=scale_tuple, mode='trilinear'),
+#             nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
+#             nn.InstanceNorm1d(out_ch),
+#             nn.ReLU(inplace=True),  # increasing the depth by adding one below
+#             nn.Conv1d(out_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
+#             nn.InstanceNorm1d(out_ch),
+#             nn.ReLU(inplace=True)
+#         )
+
+#     def forward(self, x):
+#         x = self.up_conv(x)
+#         return x
+
+
+# class Unet_model(nn.Module):
+
+#     def __init__(self, num_noise_steps, dim_model):
+#         super(Unet_model, self).__init__()
+
+#         filters_ = [8, 16, 32, 64, 128, 256]
+
+#         self.Conv_1 = conv_block(in_ch_SA, filters_[0], filters_[1])
+#         self.Conv_2 = conv_block(filters_[1], filters_[1], filters_[2])
+#         self.Conv_3 = conv_block(filters_[2], filters_[2], filters_[3])
+#         self.Conv_4 = conv_block(filters_[3], filters_[3], filters_[4])
+#         self.Conv_5 = conv_block(filters_[4], filters_[4], filters_[5])
+
+#         self.MaxPool_1 = nn.MaxPool1d(kernel_size=(2, 1, 2), stride=(2, 1, 2))
+#         self.MaxPool_2 = nn.MaxPool1d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
+#         self.MaxPool_3 = nn.MaxPool1d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
+#         self.MaxPool_4 = nn.MaxPool1d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
+
+#         self.up_sample_1 = nn.Upsample(scale_factor=(2, 2, 2), mode='trilinear')
+#         self.up_sample_2 = nn.Upsample(scale_factor=(2, 2, 2), mode='trilinear')
+#         self.up_sample_3 = nn.Upsample(scale_factor=(2, 2, 2), mode='trilinear')
+#         self.up_sample_4 = nn.Upsample(scale_factor=(2, 1, 2), mode='trilinear')
+
+#         self.up_conv_1 = conv_block(filters_[5]+filters_[4], filters_[4], filters_[4])
+#         self.up_conv_2 = conv_block(filters_[4]+filters_[3], filters_[3], filters_[3])
+#         self.up_conv_3 = conv_block(filters_[3]+filters_[2], filters_[2], filters_[2])
+#         self.up_conv_4 = conv_block(filters_[2]+filters_[1], filters_[1], filters_[1])
+
+#         self.Conv_final = nn.Conv1d(filters_[1], out_ch_SA, kernel_size=1, stride=1, padding=0)
+
+#         self.layer_t_1 = torch.nn.Linear(dim_model, dim_model)
+#         self.layer_t_2 = torch.nn.Linear(dim_model, dim_model)
+#         self.embedding_noise_step = self._build_embedding(num_noise_steps, dim_model//2)
+
+#     def forward(self, x, t):
+#         # x : (batch_size, window_size, dim_input)
+#         # t 
+#         # Noise step embedding
+#         t_emb = torch.as_tensor(self.embedding_noise_step)[t].squeeze()
+#         t_emb = self.layer_t_1(t_emb)
+#         t_emb = torch.nn.functional.silu(t_emb)
+#         t_emb = self.layer_t_2(t_emb)
+#         t_emb = torch.nn.functional.silu(t_emb)
+
+#         x = x + t_emb
+
+
+#         # network's encoder
+
+#         e1 = self.Conv_1(x)
+#         # print("E1:", e1.shape)
+#         x = self.MaxPool_1(e1)
+#         # print("E2_:", x.shape)
+#         e2 = self.Conv_2(x)
+#         # print("E3:", e2.shape)
+#         x = self.MaxPool_2(e2)
+#         # print("E4_:", x.shape)
+#         e3 = self.Conv_3(x)
+#         # print("E5:", e3.shape)
+#         x = self.MaxPool_3(e3)
+#         # print("E6_:", x.shape)
+#         e4 = self.Conv_4(x)
+#         # print("E7:", e4.shape)
+#         x = self.MaxPool_4(e4)
+#         # print("E8_:", x.shape)
+#         x = self.Conv_5(x)
+
+#         # network's decoder
+
+#         x = self.up_sample_1(x)
+#         # print("D1:", x.shape)
+#         x = torch.cat([e4, x], dim=1)
+#         del (e4)
+#         # print("D2:", x.shape)
+#         x = self.up_conv_1(x)
+#         # print("D3:", x.shape)
+#         x = self.up_sample_2(x)
+#         # print("D4:", x.shape)
+#         x = torch.cat([e3, x], dim=1)
+#         del (e3)
+#         # print("D5:", x.shape)
+#         x = self.up_conv_2(x)
+#         # print("D6:", x.shape)
+#         x = self.up_sample_3(x)
+#         # print("D7:", x.shape)
+#         x = torch.cat([e2, x], dim=1)
+#         del (e2)
+#         # print("D8:", x.shape)
+#         x = self.up_conv_3(x)
+#         # print("D9:", x.shape)
+#         x = self.up_sample_4(x)
+#         # print("D10:", x.shape)
+#         x = torch.cat([e1, x], dim=1)
+#         del (e1)
+#         # print("D11:", x.shape)
+#         x = self.up_conv_4(x)
+#         # print("D12:", x.shape)
+#         x = self.Conv_final(x)
+#         # print("D13:", d_SA.shape)
+
+#         return x
+
+#     def _build_embedding(self, num_noise_steps: int, dim: int = 64):
+#         """Build an embedding for noise step.
+#         More details in section E.1 of Tashiro et al., 2021
+#         (https://arxiv.org/abs/2107.03502)
+
+#         Parameters
+#         ----------
+#         num_noise_steps : int
+#             Number of noise steps
+#         dim : int, optional
+#             output dimension, by default 64
+
+#         Returns
+#         -------
+#         torch.Tensor
+#             List of embeddings for noise steps
+#         """
+
+#         steps = torch.arange(num_noise_steps).unsqueeze(1)  # (T,1)
+#         frequencies = 10.0 ** (torch.arange(dim) / (dim - 1) * 4.0).unsqueeze(0)  # (1,dim)
+#         table = steps * frequencies  # (T,dim)
+#         table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)  # (T,dim*2)
+#         return table

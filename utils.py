@@ -336,43 +336,43 @@ class LangevinCorrector(Corrector):
         return torch.cat((x_curr, x_prev), dim=-1), torch.cat((x_mean, x_prev), dim=-1)  # *
 
 
-# # @register_predictor(name='ancestral_sampling')
-# class AncestralSamplingPredictor(Predictor):
-#     """The ancestral sampling predictor. Currently only supports VE/VP SDEs."""
+# @register_predictor(name='ancestral_sampling')
+class AncestralSamplingPredictor(Predictor):
+    """The ancestral sampling predictor. Currently only supports VE/VP SDEs."""
 
-#     def __init__(self, sde, score_fn, probability_flow=False):
-#         super().__init__(sde, score_fn, probability_flow)
-#         if not isinstance(sde, VPSDE): # and not isinstance(sde, sde_lib.VESDE):
-#             raise NotImplementedError(f"SDE class {sde.__class__.__name__} not yet supported.")
-#         assert not probability_flow, "Probability flow not supported by ancestral sampling"
+    def __init__(self, sde, score_fn, probability_flow=False):
+        super().__init__(sde, score_fn, probability_flow)
 
-#     def vesde_update_fn(self, x, t):
-#         sde = self.sde
-#         timestep = (t * (sde.N - 1) / sde.T).long()
-#         sigma = sde.discrete_sigmas[timestep]
-#         adjacent_sigma = torch.where(timestep == 0, torch.zeros_like(t), sde.discrete_sigmas.to(t.device)[timestep - 1])
-#         score = self.score_fn(x, t)
-#         x_mean = x + score * (sigma ** 2 - adjacent_sigma ** 2)[:, None, None]
-#         std = torch.sqrt((adjacent_sigma ** 2 * (sigma ** 2 - adjacent_sigma ** 2)) / (sigma ** 2))
-#         noise = torch.randn_like(x)
-#         x = x_mean + std[:, None, None] * noise
-#         return x, x_mean
+    def vesde_update_fn(self, x, t):
+        sde = self.sde
+        timestep = (t * (sde.N - 1) / sde.T).long()
+        sigma = sde.discrete_sigmas[timestep]
+        adjacent_sigma = torch.where(timestep == 0, torch.zeros_like(t), sde.discrete_sigmas.to(t.device)[timestep - 1])
+        score = self.score_fn(x, t)
+        x_mean = x + score * (sigma ** 2 - adjacent_sigma ** 2)[:, None, None]
+        std = torch.sqrt((adjacent_sigma ** 2 * (sigma ** 2 - adjacent_sigma ** 2)) / (sigma ** 2))
+        noise = torch.randn_like(x)
+        x = x_mean + std[:, None, None] * noise
+        return x, x_mean
 
-#     def vpsde_update_fn(self, x, t):
-#         sde = self.sde
-#         timestep = (t * (sde.N - 1) / sde.T).long()
-#         beta = sde.discrete_betas.to(t.device)[timestep]
-#         score = self.score_fn(x, t)
-#         x_mean = (x + beta[:, None, None] * score) / torch.sqrt(1. - beta)[:, None, None]
-#         noise = torch.randn_like(x)
-#         x = x_mean + torch.sqrt(beta)[:, None, None] * noise
-#         return x, x_mean
+    def vpsde_update_fn(self, x, t):
+        n_feat = int(x.shape[-1]/2)
+        x_curr = x[:, :, :n_feat]
 
-#     def update_fn(self, x, t):
-#         # if isinstance(self.sde, VESDE):
-#         #     return self.vesde_update_fn(x, t)
-#         if isinstance(self.sde, VPSDE):
-#             return self.vpsde_update_fn(x, t)
+        sde = self.sde
+        timestep = (t * (sde.N - 1) / sde.T).long()
+        beta = sde.discrete_betas.to(t.device)[timestep]
+        # print(x.shape, t.shape)
+        score = self.score_fn(x, t)
+        x_mean = (x_curr + beta[:, None, None] * score) / torch.sqrt(1. - beta)[:, None, None]
+        noise = torch.randn_like(x_curr)
+        x_curr = x_mean + torch.sqrt(beta)[:, None, None] * noise
+        x[:, :, :n_feat] = x_curr
+        x_mean = torch.cat((x_curr, x[:, :, n_feat:]), dim=-1)
+        return x, x_mean
+
+    def update_fn(self, x, t):
+        return self.vpsde_update_fn(x, t)
 
 
 # # @register_predictor(name='none')
@@ -423,12 +423,12 @@ class LangevinCorrector(Corrector):
 #         return x, x_mean
 
 
-# # @register_corrector(name='none')
-# class NoneCorrector(Corrector):
-#     """An empty corrector that does nothing."""
+# @register_corrector(name='none')
+class NoneCorrector(Corrector):
+    """An empty corrector that does nothing."""
 
-#     def __init__(self, sde, score_fn, snr, n_steps):
-#         pass
+    def __init__(self, sde, score_fn, snr, n_steps):
+        pass
 
-#     def update_fn(self, x, t):
-#         return x, x
+    def update_fn(self, x, t):
+        return x, x

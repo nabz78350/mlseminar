@@ -7,7 +7,8 @@ from tqdm import tqdm
 import os
 import numpy as np
 from scipy.stats import wasserstein_distance
-from utils import VPSDE, ReverseDiffusionPredictor, LangevinCorrector, pc_sampler
+from utils import VPSDE, ReverseDiffusionPredictor, LangevinCorrector,\
+    pc_sampler, AncestralSamplingPredictor, NoneCorrector
 
 
 class DDPM(nn.Module):
@@ -235,8 +236,8 @@ class TSGM(nn.Module):
                window_size,
                dim_model,
                return_h=False):
-        predictor = ReverseDiffusionPredictor
-        corrector = LangevinCorrector
+        predictor = ReverseDiffusionPredictor   # AncestralSamplingPredictor, ReverseDiffusionPredictor
+        corrector = LangevinCorrector  # NoneCorrector, LangevinCorrector
 
         snr = 0.16
         n_steps = 1
