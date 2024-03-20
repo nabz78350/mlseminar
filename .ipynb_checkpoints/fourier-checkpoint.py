@@ -63,7 +63,7 @@ def idft(x: torch.Tensor) -> torch.Tensor:
     x_im = x[:, n_real:, :]
 
     # Create imaginary tensor
-    zero_padding = torch.zeros(size=(x.size(0), 1, x.size(2)))
+    zero_padding = torch.zeros(size=(x.size(0), 1, x.size(2))).to(x_im.device)
     x_im = torch.cat((zero_padding, x_im), dim=1)
 
     # If number of time steps is even, put the null imaginary part
