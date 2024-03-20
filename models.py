@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 from typing import Tuple
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -19,6 +20,7 @@ class PositionalEncoding(nn.Module):
         # x is expected to have shape [n_batches, input_size, d_model]
         x = x + self.pe
         return x
+
 
 class CustomTransformerTimeSeries(nn.Module):
     def __init__(self, input_size, n_feat, hidden_size, num_layers, num_heads, dropout_prob=0.1):
@@ -45,7 +47,8 @@ class CustomTransformerTimeSeries(nn.Module):
         #x = x + self.timeembed(t).view(-1,1,self.hidden_size)
         x = self.output(x)
         return x
-    
+
+
 class ResidualBlockTS(torch.nn.Module):
     """Residual block based on the work of Gorishniy et al., 2023
     (https://arxiv.org/abs/2106.11959).
@@ -144,6 +147,7 @@ class AutoEncoder(torch.nn.Module):
         self,
         num_noise_steps: int,
         dim_input: int,
+        dim_output: int,
         residual_block: torch.nn.Module,
         dim_embedding: int = 128,
         num_blocks: int = 1,
@@ -178,7 +182,7 @@ class AutoEncoder(torch.nn.Module):
         self.layer_t_2 = torch.nn.Linear(dim_embedding, dim_embedding)
 
         self.layer_out_1 = torch.nn.Linear(dim_embedding, dim_embedding)
-        self.layer_out_2 = torch.nn.Linear(dim_embedding, dim_input)
+        self.layer_out_2 = torch.nn.Linear(dim_embedding, dim_output)
         self.dropout_out = torch.nn.Dropout(p_dropout)
 
         self.residual_layers = torch.nn.ModuleList([residual_block for _ in range(num_blocks)])
@@ -199,7 +203,7 @@ class AutoEncoder(torch.nn.Module):
             Data output, noise predicted
         """
         # Noise step embedding
-        t_emb = torch.as_tensor(self.embedding_noise_step)[t].squeeze()
+        t_emb = torch.as_tensor(self.embedding_noise_step.to(x.device))[t.to(x.device)].squeeze()
         t_emb = self.layer_t_1(t_emb)
         t_emb = torch.nn.functional.silu(t_emb)
         t_emb = self.layer_t_2(t_emb)
@@ -236,9 +240,51 @@ class AutoEncoder(torch.nn.Module):
         torch.Tensor
             List of embeddings for noise steps
         """
-        
+
         steps = torch.arange(num_noise_steps).unsqueeze(1)  # (T,1)
         frequencies = 10.0 ** (torch.arange(dim) / (dim - 1) * 4.0).unsqueeze(0)  # (1,dim)
         table = steps * frequencies  # (T,dim)
         table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)  # (T,dim*2)
         return table
+
+
+class RNNEncDec(nn.Module):
+    def __init__(self, dim_input, num_layers, device):
+        super().__init__()
+        self.device = device
+        encoder_layer = nn.TransformerEncoderLayer(d_model=dim_input,
+                                                   nhead=1,
+                                                   dropout=0.1,
+                                                   batch_first=True)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=dim_input,
+                                                   nhead=1,
+                                                   dropout=0.1,
+                                                   batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer,
+                                             num_layers=num_layers).to(device)
+        self.decoder = nn.TransformerDecoder(decoder_layer,
+                                             num_layers=num_layers).to(device)
+        self.parameters = list(self.encoder.parameters()) + \
+            list(self.decoder.parameters())
+
+    def forward(self, x):
+        # x : (batch_size, window_size, dim_input)
+        # encoder
+        h = self.encoder(x)
+        # decoder
+        x_ = self.decoder(x[:, :-1, :], h)
+        return torch.cat((x[:, 0, :].unsqueeze(1), x_), dim=1)
+
+    def predict(self, start, memory):
+        # start/x_0 : (batch_size, dim_input)
+        # memory/h : (batch_size, window_size, dim_input)
+        start = start.unsqueeze(1)
+        output = torch.zeros_like(memory)
+        output[:, 0, :] = start.squeeze(1)
+        for i in range(1, memory.shape[1]):
+            tgt = output[:, :i, :]
+            output[:, i, :] = self.decoder(tgt,
+                                           memory)[:, -1, :]
+
+        # output : (batch_size, window_size, dim_input)
+        return output
