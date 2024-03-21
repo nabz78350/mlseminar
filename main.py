@@ -130,9 +130,9 @@ if __name__ == '__main__':
     # for val in values :
     #     train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
     
-    # hyperparameter = "NUM_LAYERS_TRANSFORMER"
-    # values = [1,2,4,8]
-    # for val in values :
-    #     train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
+    hyperparameter = "NUM_LAYERS_TRANSFORMER"
+    values = [1,2,4,8]
+    for val in values :
+        train_model(model_kind="DDPM",hyperparameter =hyperparameter,parameter_value=val)
     
     

@@ -55,9 +55,22 @@ class DDPM(nn.Module):
             for x in pbar:   
                 self.model.zero_grad()
                 x = x.to(self.device)
-                # perturb data
+                # perturb data with gaussian noise
                 noise = torch.randn_like(x)
+                print(noise.shape)
+                
                 ### TODO ajouter bruit gaussian covarié
+                values = x.numpy()
+                batch_size = values.shape[0]
+                seq_len = values.shape[1] 
+                n_columns = values.shape[2]
+                values_reshaped = values.reshape(-1, values.shape[-1])
+                cov_matrix = np.cov(values_reshaped, rowvar=False)
+                L = np.linalg.cholesky(cov_matrix)
+                standard_normal_samples = np.random.normal(loc=0, scale=1, size=(batch_size, seq_len, n_columns))
+                transformed_noise = np.einsum('ijk,kl->ijl', standard_normal_samples, L)
+                noise = torch.tensor(transformed_noise)
+                print(noise.shape)
                 t = torch.randint(1, self.timesteps, (x.shape[0],1)).to(self.device) 
                 x_pert = self.perturb_input(x, t.squeeze(), noise)
                 # use network to recover noise
