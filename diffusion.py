@@ -107,20 +107,20 @@ class DDPM(nn.Module):
 
 
 class TSGM(nn.Module):
-    def __init__(self, score_model, RNN_model, num_noise_steps, beta_0, beta_1,
+    def __init__(self, score_model, EncDec_model, num_noise_steps, beta_0, beta_1,
                  device):
         super(TSGM, self).__init__()
         self.device = device
         self.score_model = score_model
-        self.RNN = RNN_model
+        self.EncDec = EncDec_model
         self.beta_0 = beta_0
         self.beta_1 = beta_1
         self.num_noise_steps = num_noise_steps
 
         self.sde = VPSDE(beta_0, beta_1, num_noise_steps)
 
-    def pretrain_RNN(self, train_loader, n_epoch_pretrain, lrate):
-        optimizer = torch.optim.Adam(self.RNN.parameters(), lr=lrate)
+    def pretrain_EncDec(self, train_loader, n_epoch_pretrain, lrate):
+        optimizer = torch.optim.Adam(self.EncDec.parameters(), lr=lrate)
 
         # initializations
         losses = []
@@ -130,7 +130,7 @@ class TSGM(nn.Module):
                 x = x.to(self.device)
                 optimizer.zero_grad()
 
-                x_pred = self.RNN(x)
+                x_pred = self.EncDec(x)
                 loss = F.mse_loss(x_pred, x)
 
                 loss.backward()
@@ -143,20 +143,20 @@ class TSGM(nn.Module):
 
     def loss_score(self, x):
 
-        # RNN encoding
-        h = self.RNN.encoder(x)  # h/X.shape = (batch_size, window_size, n_features)
+        # EncDec encoding
+        h = self.EncDec.encoder(x)  # h/X.shape = (batch_size, window_size, n_features)
 
         # extract h_prev
         h_prev = h[:, :-1, :]
         h = h[:, 1:, :]
 
         # forward pass
-        s = torch.randint(1, self.num_noise_steps, (h.shape[0], 1)).to(self.device)
+        s = torch.randint(1, self.num_noise_steps, (h.shape[0], h.shape[1])).to(self.device)
         z = torch.randn_like(h)  # sample noise
         # h_s = self.sde.sqrt_alphas_cumprod[s, None] * h + self.sde.sqrt_1m_alphas_cumprod[s, None] * z
 
         mean, std = self.sde.marginal_prob(h, s)
-        h_s = mean + std[:, None] * z
+        h_s = mean + std[:, :, None] * z
 
         # concatenate h_s and h_prev
         h_combined = torch.cat((h_s, h_prev), dim=2)
@@ -168,20 +168,20 @@ class TSGM(nn.Module):
         # grad = (h_s - h)/(1 - self.sde.alphas_cumprod[s, None])
 
         # compute loss
-        loss = torch.square(score * std[:, None] + z)
+        loss = torch.square(score * std[:, :, None] + z)
 
         # return F.mse_loss(score, grad)
         return torch.mean(loss)
 
     def train(self, train_loader, n_epoch_train, n_epoch_pretrain, lrate,
               use_alt=False):
-        # pre-train the RNN model
-        losses_pre = self.pretrain_RNN(train_loader, n_epoch_pretrain, lrate)
+        # pre-train the model
+        losses_pre = self.pretrain_EncDec(train_loader, n_epoch_pretrain, lrate)
 
         # set up optimizer
         if use_alt:
             self.parameters = list(self.score_model.parameters()) +\
-                list(self.RNN.parameters())
+                list(self.EncDec.parameters())
         else:
             self.parameters = list(self.score_model.parameters())
 
@@ -208,11 +208,11 @@ class TSGM(nn.Module):
 
                 if use_alt:
                     self.optimizer.zero_grad()
-                    x_pred = self.RNN(x)
-                    loss_RNN = F.mse_loss(x_pred, x)
-                    loss_RNN.backward()
+                    x_pred = self.EncDec(x)
+                    loss_EncDec = F.mse_loss(x_pred, x)
+                    loss_EncDec.backward()
                     self.optimizer.step()
-                    loss_epoch_EncDec += loss_RNN.item()
+                    loss_epoch_EncDec += loss_EncDec.item()
 
                 loss_epoch += loss.item()*x.shape[0]
                 # mae_epoch += F.l1_loss(pred_noise, noise).item()/x.shape[0]
@@ -236,22 +236,22 @@ class TSGM(nn.Module):
                window_size,
                dim_model,
                return_h=False):
-        predictor = ReverseDiffusionPredictor   # AncestralSamplingPredictor, ReverseDiffusionPredictor
-        corrector = LangevinCorrector  # NoneCorrector, LangevinCorrector
+        predictor = AncestralSamplingPredictor   # AncestralSamplingPredictor, ReverseDiffusionPredictor
+        corrector = NoneCorrector  # NoneCorrector, LangevinCorrector
 
         snr = 0.16
         n_steps = 1
         sde = VPSDE(self.beta_0, self.beta_1, self.num_noise_steps)
         shape = (n_sample, window_size, dim_model)
 
-        h_start = self.RNN.encoder(start.unsqueeze(1))
+        h_start = self.EncDec.encoder(start.unsqueeze(1))
         h = pc_sampler(h_start,  # shape: (batch_size, 1, dim_input)
                        self.score_model, sde,
                        shape,
                        predictor, corrector,
                        snr, self.device, n_steps=n_steps)
 
-        x = self.RNN.predict(start, h)  # shape: (batch_size, window_size, dim_input)
+        x = self.EncDec.predict(start, h)  # shape: (batch_size, window_size, dim_input)
         if return_h:
             return x, h
         return x

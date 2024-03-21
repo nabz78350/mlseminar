@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from typing import Tuple
+import torch.nn.functional as F
 
 
 class PositionalEncoding(nn.Module):
@@ -20,6 +21,24 @@ class PositionalEncoding(nn.Module):
         # x is expected to have shape [n_batches, input_size, d_model]
         assert x.shape[1] <= self.pe.shape[1], "Input size is greater than max_len"
         x = x + self.pe[:, :x.shape[1], :]
+        return x
+
+
+class FourierPositionalEmbedding(nn.Module):
+    def __init__(self,
+                 d_model,
+                 max_positions=10000):
+        super(FourierPositionalEmbedding, self).__init__()
+        self.d_model = d_model
+        self.max_positions = max_positions
+
+    def forward(self, x):
+        freqs = torch.arange(0, self.d_model // 2, dtype=torch.float32)
+        divisor = self.d_model // 2
+        freqs = freqs / divisor
+        freqs = (1 / self.max_positions) ** freqs
+        x = torch.unsqueeze(x, -1) * freqs
+        x = torch.cat([torch.cos(x), torch.sin(x)], dim=-1)
         return x
 
 
@@ -45,7 +64,7 @@ class CustomTransformerTimeSeries(nn.Module):
         x = self.fc(x)
         x = self.pos_encoder(x)
         x = self.transformer(x + self.timeembed(t).view(-1,1,self.hidden_size))
-        #x = x + self.timeembed(t).view(-1,1,self.hidden_size)
+        # x = x + self.timeembed(t).view(-1,1,self.hidden_size)
         x = self.output(x)
         return x
 
@@ -249,7 +268,7 @@ class AutoEncoder(torch.nn.Module):
         return table
 
 
-class RNNEncDec(nn.Module):
+class EncDec(nn.Module):
     def __init__(self, dim_input, dim_model, num_layers, device, max_len=128):
         super().__init__()
         self.device = device
@@ -337,23 +356,23 @@ class RNNEncDec(nn.Module):
 
 # class up_conv_block(nn.Module):
 
-#     def __init__(self, in_ch, out_ch, scale_tuple):
+    # def __init__(self, in_ch, out_ch, scale_tuple):
 
-#         super(up_conv_block, self).__init__()
+    #     super(up_conv_block, self).__init__()
 
-#         self.up_conv = nn.Sequential(
-#             nn.Upsample(scale_factor=scale_tuple, mode='trilinear'),
-#             nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
-#             nn.InstanceNorm1d(out_ch),
-#             nn.ReLU(inplace=True),  # increasing the depth by adding one below
-#             nn.Conv1d(out_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
-#             nn.InstanceNorm1d(out_ch),
-#             nn.ReLU(inplace=True)
-#         )
+    #     self.up_conv = nn.Sequential(
+    #         nn.Upsample(scale_factor=scale_tuple, mode='trilinear'),
+    #         nn.Conv1d(in_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
+    #         nn.InstanceNorm1d(out_ch),
+    #         nn.ReLU(inplace=True),  # increasing the depth by adding one below
+    #         nn.Conv1d(out_ch, out_ch, kernel_size=3, stride=1, padding=1),  # no change in dimensions of  volume
+    #         nn.InstanceNorm1d(out_ch),
+    #         nn.ReLU(inplace=True)
+    #     )
 
-#     def forward(self, x):
-#         x = self.up_conv(x)
-#         return x
+    # def forward(self, x):
+    #     x = self.up_conv(x)
+    #     return x
 
 
 # class Unet_model(nn.Module):
@@ -481,3 +500,144 @@ class RNNEncDec(nn.Module):
 #         table = steps * frequencies  # (T,dim)
 #         table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)  # (T,dim*2)
 #         return table
+
+
+class UNetBlock(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 dropout_rate=0.,
+                 training=False,
+                 down=False, up=False):
+        super(UNetBlock, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.dropout_rate = dropout_rate
+        self.training = training
+        self.down = down
+        self.up = up
+
+        if self.up:
+            self.conv1 = nn.ConvTranspose1d(in_channels, out_channels,
+                                            kernel_size=3, stride=2,
+                                            padding=1, output_padding=1)
+            self.conv2 = nn.ConvTranspose1d(in_channels, out_channels,
+                                            kernel_size=3, stride=2,
+                                            padding=1, output_padding=1)
+        elif self.down:
+            self.conv1 = nn.Conv1d(in_channels, out_channels,
+                                   kernel_size=3, stride=2,
+                                   padding=1)
+            self.conv2 = nn.Conv1d(in_channels, out_channels,
+                                   kernel_size=1, stride=2,
+                                   padding=0)
+        else:
+            self.conv1 = nn.Conv1d(in_channels, out_channels,
+                                   kernel_size=3, stride=1,
+                                   padding=1)
+            self.conv2 = nn.Conv1d(in_channels, out_channels,
+                                   kernel_size=1, stride=1,
+                                   padding=0)
+
+        self.embed = nn.Linear(1, out_channels)
+
+        self.norm1 = nn.GroupNorm(self.out_channels, self.out_channels)
+        self.norm2 = nn.GroupNorm(self.out_channels, self.out_channels)
+
+        self.conv3 = nn.Conv1d(out_channels, out_channels,
+                               kernel_size=3, stride=1,
+                               padding=1)
+
+        # if self.num_heads:
+        #     self.multihead_attention = nn.MultiheadAttention(
+        #         embed_dim=self.out_channels, num_heads=self.num_heads)
+
+    def forward(self, x, emb):
+        # x : (batch_size, in_channels, dim_x)
+        # emb : (batch_size, in_channels, dim_emb)
+
+        orig = x
+        x = self.conv1(x)
+        skip = self.conv2(orig)
+
+        emb = self.embed(emb.transpose(2, 1)).transpose(2, 1)
+
+        x = self.norm1(x + emb)  # emb should be the same dim as next x
+        x = F.silu(x)
+
+        x = self.conv3(F.dropout(x, p=self.dropout_rate,
+                                 training=self.training))
+        x = x + skip
+
+        # if self.num_heads:
+        #     x = self.multihead_attention(x, x, x)[0] + x
+
+        return x  # (batch_size, out_channels, dim_emb)
+
+
+class Unet_model(nn.Module):
+    def __init__(self, dim_input,
+                 dropout_rate=0., training=False):
+        super(Unet_model, self).__init__()
+
+        self.channels = [8, 16, 32, 64, 128, 256]
+
+        self.in_conv = UNetBlock(1, self.channels[0], dropout_rate,
+                                 training)
+
+        self.encoder = nn.ModuleList([
+            UNetBlock(self.channels[i], self.channels[i+1], dropout_rate,
+                      training, down=True)
+            for i in range(len(self.channels)-1)
+        ])
+
+        self.decoder = nn.ModuleList([
+            UNetBlock(self.channels[-i], self.channels[-i-1], dropout_rate,
+                      training, up=True)
+            for i in range(1, len(self.channels))
+        ])
+
+        self.cat_conv = nn.ModuleList([
+            nn.Conv1d(2*self.channels[i], self.channels[i],
+                      kernel_size=1, stride=1, padding=0)
+            for i in range(len(self.channels))
+        ])
+
+        self.out = nn.Conv1d(self.channels[0], 1,
+                             kernel_size=2, stride=2, padding=0)
+
+        self.embedding_noise_step = FourierPositionalEmbedding(dim_input)
+        self.step_embeddings = nn.ModuleList([
+            nn.AvgPool1d(kernel_size=2**i, stride=2**i)
+            for i in range(len(self.channels))
+        ])
+
+    def forward(self, x, s):
+        # x : (batch_size, window_size, dim_input)
+        # s : (batch_size, window_size)
+        batch_size, window_size, _ = x.shape
+        x = x.view(-1, x.shape[-1]).unsqueeze(1)
+        s = s.view(-1, 1)
+
+        emb = self.embedding_noise_step(s)
+        emb = [step_emb(emb) for step_emb in self.step_embeddings]
+
+        encoded = []
+        x = self.in_conv(x, emb[0])
+        encoded.append(x)
+        for i, layer in enumerate(self.encoder):
+            x = layer(x, emb[i+1])
+            encoded.append(x)
+
+        for i, layer in enumerate(self.decoder):
+            x = layer(x, emb[-i-2])
+            x = torch.cat((x, encoded[-i-2]), dim=1)
+            x = self.cat_conv[-i-2](x)
+
+        x = self.out(x)
+
+        return x.view(batch_size, window_size, -1)
+
+
+# # reshape x and emb
+# batch_size, window_size, _ = x.shape  # used later for reshaping
+# x = x.view(-1, x.shape[-1]).unsqueeze(1)
+# emb = emb.view(-1, emb.shape[-1]).unsqueeze(1)
