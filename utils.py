@@ -4,7 +4,7 @@ import numpy as np
 
 
 def pc_sampler(start, model, sde, shape, predictor, corrector, snr, device, inverse_scaler=lambda x: x, continuous=False,
-                n_steps=1, denoise=False, eps=1e-3, probability_flow=False):
+                n_steps=1, denoise=True, eps=1e-3, probability_flow=False):
     """ The PC sampler funciton.
     """
     model.eval()

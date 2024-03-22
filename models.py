@@ -27,13 +27,15 @@ class PositionalEncoding(nn.Module):
 class FourierPositionalEmbedding(nn.Module):
     def __init__(self,
                  d_model,
+                 device,
                  max_positions=10000):
         super(FourierPositionalEmbedding, self).__init__()
         self.d_model = d_model
         self.max_positions = max_positions
+        self.device = device
 
     def forward(self, x):
-        freqs = torch.arange(0, self.d_model // 2, dtype=torch.float32)
+        freqs = torch.arange(0, self.d_model // 2, dtype=torch.float32, device=self.device)
         divisor = self.d_model // 2
         freqs = freqs / divisor
         freqs = (1 / self.max_positions) ** freqs
@@ -505,13 +507,11 @@ class EncDec(nn.Module):
 class UNetBlock(nn.Module):
     def __init__(self, in_channels, out_channels,
                  dropout_rate=0.,
-                 training=False,
                  down=False, up=False):
         super(UNetBlock, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.dropout_rate = dropout_rate
-        self.training = training
         self.down = down
         self.up = up
 
@@ -561,7 +561,7 @@ class UNetBlock(nn.Module):
         emb = self.embed(emb.transpose(2, 1)).transpose(2, 1)
 
         x = self.norm1(x + emb)  # emb should be the same dim as next x
-        x = F.silu(x)
+        x = F.relu(x)
 
         x = self.conv3(F.dropout(x, p=self.dropout_rate,
                                  training=self.training))
@@ -574,24 +574,23 @@ class UNetBlock(nn.Module):
 
 
 class Unet_model(nn.Module):
-    def __init__(self, dim_input,
-                 dropout_rate=0., training=False):
+    def __init__(self, dim_input, device,
+                 dropout_rate=0.):
         super(Unet_model, self).__init__()
 
         self.channels = [8, 16, 32, 64, 128, 256]
 
-        self.in_conv = UNetBlock(1, self.channels[0], dropout_rate,
-                                 training)
+        self.in_conv = UNetBlock(1, self.channels[0], dropout_rate)
 
         self.encoder = nn.ModuleList([
             UNetBlock(self.channels[i], self.channels[i+1], dropout_rate,
-                      training, down=True)
+                      down=True)
             for i in range(len(self.channels)-1)
         ])
 
         self.decoder = nn.ModuleList([
             UNetBlock(self.channels[-i], self.channels[-i-1], dropout_rate,
-                      training, up=True)
+                      up=True)
             for i in range(1, len(self.channels))
         ])
 
@@ -604,7 +603,7 @@ class Unet_model(nn.Module):
         self.out = nn.Conv1d(self.channels[0], 1,
                              kernel_size=2, stride=2, padding=0)
 
-        self.embedding_noise_step = FourierPositionalEmbedding(dim_input)
+        self.embedding_noise_step = FourierPositionalEmbedding(dim_input, device)
         self.step_embeddings = nn.ModuleList([
             nn.AvgPool1d(kernel_size=2**i, stride=2**i)
             for i in range(len(self.channels))
@@ -621,13 +620,16 @@ class Unet_model(nn.Module):
         emb = [step_emb(emb) for step_emb in self.step_embeddings]
 
         encoded = []
+        self.in_conv.training = self.training
         x = self.in_conv(x, emb[0])
         encoded.append(x)
         for i, layer in enumerate(self.encoder):
+            layer.training = self.training
             x = layer(x, emb[i+1])
             encoded.append(x)
 
         for i, layer in enumerate(self.decoder):
+            layer.training = self.training
             x = layer(x, emb[-i-2])
             x = torch.cat((x, encoded[-i-2]), dim=1)
             x = self.cat_conv[-i-2](x)

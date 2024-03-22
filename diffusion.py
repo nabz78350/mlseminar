@@ -175,6 +175,8 @@ class TSGM(nn.Module):
 
     def train(self, train_loader, n_epoch_train, n_epoch_pretrain, lrate,
               use_alt=False):
+        self.score_model.train()
+
         # pre-train the model
         losses_pre = self.pretrain_EncDec(train_loader, n_epoch_pretrain, lrate)
 
@@ -236,8 +238,10 @@ class TSGM(nn.Module):
                window_size,
                dim_model,
                return_h=False):
-        predictor = AncestralSamplingPredictor   # AncestralSamplingPredictor, ReverseDiffusionPredictor
-        corrector = NoneCorrector  # NoneCorrector, LangevinCorrector
+        self.score_model.eval()
+
+        predictor = ReverseDiffusionPredictor   # AncestralSamplingPredictor, ReverseDiffusionPredictor
+        corrector = LangevinCorrector  # NoneCorrector, LangevinCorrector
 
         snr = 0.16
         n_steps = 1
