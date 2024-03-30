@@ -247,6 +247,38 @@ class AutoEncoder(torch.nn.Module):
         table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)  # (T,dim*2)
         return table
 
+from transformers import PatchTSTModel, PatchTSMixerModel
+model = PatchTSTModel.from_pretrained("namctin/patchtst_etth1_pretrain")
+#model = PatchTSMixerModel.from_pretrained("ibm/patchtsmixer-etth1-pretrain")
+#freeze the model   
+for param in model.parameters():
+    param.requires_grad = False
+
+class CustomEncoderModel(nn.Module):
+    def __init__(self, pretrained_model, in_features, out_features, pretrained_model_dim):
+        super().__init__()
+        self.model = pretrained_model
+        self.in_features = in_features
+        self.out_features = out_features
+        self.pretrained_model_dim = pretrained_model_dim
+        self.linear_in = nn.Linear(self.in_features, self.pretrained_model_dim)
+        self.flatten = nn.Flatten(start_dim=2, end_dim=-1)
+        self.linear_out = nn.Linear(5504, self.out_features)
+        #self.linear_out = nn.Linear(1536,  self.out_features)
+        self.linear_out_2 = nn.Linear(7, self.in_features)
+        self.dropout = nn.Dropout(p=0.2, inplace=False)
+    def forward(self, x):
+        x = self.linear_in(x)
+        x = self.model(x, return_dict=False)[0]
+        x = self.flatten(x)
+        x = self.linear_out(x)
+        #change the shape to (0,2,1)
+        x = self.dropout(x)
+        x = x.permute(0,2,1)
+        x = self.linear_out_2(x)
+
+        return x
+
 
 class RNNEncDec(nn.Module):
     def __init__(self, dim_input, num_layers, device):
@@ -260,14 +292,23 @@ class RNNEncDec(nn.Module):
                                                    nhead=1,
                                                    dropout=0.1,
                                                    batch_first=True)
-        self.encoder = nn.TransformerEncoder(encoder_layer,
-                                             num_layers=num_layers).to(device)
+        self.encoder = CustomEncoderModel(model,
+                                                   in_features=dim_input,
+                                                   out_features=512,
+                                                   pretrained_model_dim=7,)
+        #self.encoder = nn.TransformerEncoder(encoder_layer,
+         #                                    num_layers=num_layers).to(device)
         self.decoder = nn.TransformerDecoder(decoder_layer,
                                              num_layers=num_layers).to(device)
         self.parameters = list(self.encoder.parameters()) + \
             list(self.decoder.parameters())
 
     def forward(self, x):
+        self.encoder.train()
+        self.decoder.train()
+        #freeze the model   
+        for param in self.encoder.model.parameters():
+            param.requires_grad = False
         # x : (batch_size, window_size, dim_input)
         # encoder
         h = self.encoder(x)
@@ -278,9 +319,11 @@ class RNNEncDec(nn.Module):
     def predict(self, start, memory):
         # start/x_0 : (batch_size, dim_input)
         # memory/h : (batch_size, window_size, dim_input)
+        self.encoder.eval()
+        self.decoder.eval()
         start = start.unsqueeze(1)
         output = torch.zeros_like(memory)
-        output[:, 0, :] = start.squeeze(1)
+        output[:, 0, :] = start.squeeze(1)[:, -1, :]
         for i in range(1, memory.shape[1]):
             tgt = output[:, :i, :]
             output[:, i, :] = self.decoder(tgt,
